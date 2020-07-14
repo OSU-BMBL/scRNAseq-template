@@ -1,5 +1,5 @@
 ---
-title: "scRNAseq analysis using Rmarkdown"
+title: "RNAseq analysis using Rmarkdown"
 author: "Cankun Wang"
 date: "`r format(Sys.time(), '%m/%d/%Y')`"
 output: 
@@ -7,13 +7,14 @@ output:
     toc: true
     toc_float: true
     number_sections: true
+runtime: shiny
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 cran_packages <- c(
-  "Seurat","enrichR","DT"
+  "Seurat","enrichR"
 )
 cran_np <- cran_packages[!(cran_packages %in% installed.packages()[,"Package"])]
 
@@ -24,39 +25,45 @@ if(length(cran_np)) {
 
 library(Seurat) 
 library(enrichR)
-library(DT)
 
 knitr::opts_knit$set(root.dir = "C:/Users/flyku/Desktop/ISU")
 
-# setwd()
-```
-
-```{r chunk_name, [options]}
-## R code here 
 ```
 
 
 # Goal
 
-The primary goal of this study is to identify gene expression difference between conditions using a toy dataset.
+The primary goal of this study is to identify gene expression difference between conditions.
 
 Rmarkdown reference can be found in here: [Reference](https://rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf)
 
+How to experimental design in DESeq2 (https://rpubs.com/ge600/deseq2)
+
 [Mathematics in Rmarkdown](https://www.calvin.edu/~rpruim/courses/s341/S17/from-class/MathinRmd.html)
 
-[Seurat - Guided Clustering Tutorial](https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html)
+[Analyzing RNA-seq data with DESeq2](http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#independent-hypothesis-weighting)
 
-# Run Seurat strandard workflow
+[RNA-seq workflow: gene-level exploratory analysis and differential expression](http://bioconductor.org/packages/release/bioc/vignettes/IHW/inst/doc/introduction_to_ihw.html#an-example-rna-seq-differential-expression)
+
+
+Limma is actually better than DESeq2 in terms of controlling false positives: [RNA-seq analysis is easy as 1-2-3 with limma, Glimma and edgeR](https://www.bioconductor.org/packages/devel/workflows/vignettes/RNAseq123/inst/doc/limmaWorkflow.html)
+
+# Methods
+
+* Differential expression (DE) analysis was performed using the DESeq2 package. Genes were ranked for evidence of DE by their adjusted P values (smallest to largest). The table shows differentially expressed genes with absolute log fold-change > 1.5
+* The identified differentially expressed genes with absolute log fold-change > 1.5 and Benjamini–Hochberg adjusted P values < 0.05 were submited to Enrichr v2.1 R package for enrichment analysis. The term databases are KEGG_2019_Mouse, GO_Molecular_Function_2018, GO_Biological_Process_2018, GO_Cellular_Component_2018 provided in Enrichr.
+* Volcano Plot was generated using EnhancedVolcano R package.
+* MA-Plot was generated using ggpubr R package.
+
+
+# Pre-processing
 
 ## Load dataset
 
 Using raw read count as input.
 
 
-```{r,echo=F,eval=T,message=F,warning=F,error=F}
-## list all enrichr database
-# listEnrichrDbs()
-
+```{r,echo=T,eval=T,message=F,warning=F,error=F}
 ## Change to human or mouse 
 dbs <- c("GO_Molecular_Function_2018", "GO_Cellular_Component_2018", "GO_Biological_Process_2018","KEGG_2019_Human")
 
@@ -64,7 +71,7 @@ counts <- read.csv("count-data-scrna.csv",stringsAsFactors = F,check.names = F, 
 meta <- read.csv("col-data-scrna.csv",stringsAsFactors = F, row.names = 1)
 
 # Overview of the dataset
-counts[1:10, ]
+counts[1:10, 1:10]
 meta[1:10,]
 
 ```
@@ -77,6 +84,8 @@ obj <- CreateSeuratObject(counts = counts, project = "scRNAseq", min.cells = 3, 
 obj <- AddMetaData(object = obj, metadata = meta)
 
 ```
+
+# Running Seurat analysis
 
 ## Normalizing the data
 
@@ -184,93 +193,32 @@ DimPlot(obj, reduction = "umap")
 
 ## Finding differentially expressed features
 
-Find cell type specific genes between control and disease group
+Find cell type specific genes
 
 ```{r,echo=T,eval=T,message=F,warning=F,error=F}
-Idents(obj) <- obj$Condition
-cts_de_genes <- FindMarkers(obj, ident.1 = "Control", ident.2 = "Disease")
-
-DT::datatable(cts_de_genes, extensions = c('FixedColumns','Buttons'),
-              options = list(
-                pageLength = 5,
-                scrollX = TRUE,
-                scrollCollapse = TRUE,
-                dom = 'Bfrtip',
-                buttons = c('copy', 'csv', 'excel')
-              ))
+Idents(obj) <- obj$seurat_clusters
+cts_de_genes <- FindAllMarkers(obj)
+cts_de_genes[1:5,]
 ```
 
-### Violin plot for top 10 DEGs
 
+```{r eruptions, echo=FALSE}
+inputPanel(
+  selectInput("n_breaks", label = "Number of bins:",
+              choices = c(10, 20, 35, 50), selected = 20),
+  
+  sliderInput("bw_adjust", label = "Bandwidth adjustment:",
+              min = 0.2, max = 2, value = 1, step = 0.2)
+)
 
-```{r,echo=F,eval=T,message=F,warning=F,error=F, fig.width=8, fig.height=18}
-Idents(obj) <- obj$Condition
-VlnPlot(obj, features = rownames(cts_de_genes[which(cts_de_genes$p_val_adj < 0.05),])[1:10])
+renderPlot({
+  hist(faithful$eruptions, probability = TRUE, breaks = as.numeric(input$n_breaks),
+       xlab = "Duration (minutes)", main = "Geyser eruption duration")
+  
+  dens <- density(faithful$eruptions, adjust = input$bw_adjust)
+  lines(dens, col = "blue")
+})
 
-```
-
-## Functional enrichment analysis for DEGs {.tabset}
-
-### GO Biological Process
-
-```{r, fig.width=10, fig.height=10,echo=T,message=FALSE,warning=F}
-
-# This select genes of adj.p.value < 0.05, sometimes people use different threshold, like adding log2foldchange threshold.
-
-
-enriched_combined <- enrichr(rownames(cts_de_genes[which(cts_de_genes$p_val_adj < 0.05 & abs(cts_de_genes$avg_logFC) > 1.5),]),dbs)
-
-# output top 20 enriched terms
-DT::datatable(head(enriched_combined$GO_Biological_Process_2018,n=20)[,c(-3,-5,-6,-7)], extensions = c('FixedColumns','Buttons'),
-              options = list(
-                pageLength = 5,
-                scrollX = TRUE,
-                scrollCollapse = TRUE,
-                dom = 'Bfrtip',
-                buttons = c('copy', 'csv', 'excel')
-              ))
-```
-
-### GO Cellular Component
-
-```{r, fig.width=10, fig.height=10,echo=T,message=FALSE,warning=F}
-
-DT::datatable(head(enriched_combined$GO_Cellular_Component_2018,n=20)[,c(-3,-5,-6,-7)], extensions = c('FixedColumns','Buttons'),
-              options = list(
-                pageLength = 5,
-                scrollX = TRUE,
-                scrollCollapse = TRUE,
-                dom = 'Bfrtip',
-                buttons = c('copy', 'csv', 'excel')
-              ))
-```
-
-### GO Molecular Function
-
-```{r, fig.width=10, fig.height=10,echo=T,message=FALSE,warning=F}
-
-DT::datatable(head(enriched_combined$GO_Molecular_Function_2018,n=20)[,c(-3,-5,-6,-7)], extensions = c('FixedColumns','Buttons'),
-              options = list(
-                pageLength = 5,
-                scrollX = TRUE,
-                scrollCollapse = TRUE,
-                dom = 'Bfrtip',
-                buttons = c('copy', 'csv', 'excel')
-              ))
-```
-
-### KEGG pathway
-
-```{r, fig.width=10, fig.height=10,echo=T,message=FALSE,warning=F}
-
-DT::datatable(head(enriched_combined$KEGG_2019_Mouse,n=20)[,c(-3,-5,-6,-7)], extensions = c('FixedColumns','Buttons'),
-              options = list(
-                pageLength = 5,
-                scrollX = TRUE,
-                scrollCollapse = TRUE,
-                dom = 'Bfrtip',
-                buttons = c('copy', 'csv', 'excel')
-              ))
 ```
 
 
