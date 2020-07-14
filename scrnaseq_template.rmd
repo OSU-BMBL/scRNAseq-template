@@ -13,7 +13,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 
 cran_packages <- c(
-  "Seurat","enrichR"
+  "Seurat","enrichR","DT"
 )
 cran_np <- cran_packages[!(cran_packages %in% installed.packages()[,"Package"])]
 
@@ -24,10 +24,15 @@ if(length(cran_np)) {
 
 library(Seurat) 
 library(enrichR)
-
+library(DT)
 
 knitr::opts_knit$set(root.dir = "C:/Users/flyku/Desktop/ISU")
 
+# setwd()
+```
+
+```{r chunk_name, [options]}
+## R code here 
 ```
 
 
@@ -48,7 +53,10 @@ Rmarkdown reference can be found in here: [Reference](https://rstudio.com/wp-con
 Using raw read count as input.
 
 
-```{r,echo=T,eval=T,message=F,warning=F,error=F}
+```{r,echo=F,eval=T,message=F,warning=F,error=F}
+## list all enrichr database
+# listEnrichrDbs()
+
 ## Change to human or mouse 
 dbs <- c("GO_Molecular_Function_2018", "GO_Cellular_Component_2018", "GO_Biological_Process_2018","KEGG_2019_Human")
 
@@ -56,7 +64,7 @@ counts <- read.csv("count-data-scrna.csv",stringsAsFactors = F,check.names = F, 
 meta <- read.csv("col-data-scrna.csv",stringsAsFactors = F, row.names = 1)
 
 # Overview of the dataset
-counts[1:10, 1:10]
+counts[1:10, ]
 meta[1:10,]
 
 ```
@@ -190,6 +198,15 @@ DT::datatable(cts_de_genes, extensions = c('FixedColumns','Buttons'),
                 dom = 'Bfrtip',
                 buttons = c('copy', 'csv', 'excel')
               ))
+```
+
+### Violin plot for top 10 DEGs
+
+
+```{r,echo=F,eval=T,message=F,warning=F,error=F, fig.width=8, fig.height=18}
+Idents(obj) <- obj$Condition
+VlnPlot(obj, features = rownames(cts_de_genes[which(cts_de_genes$p_val_adj < 0.05),])[1:10])
+
 ```
 
 ## Functional enrichment analysis for DEGs {.tabset}
